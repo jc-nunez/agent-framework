@@ -56,7 +56,7 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
         }
 
         // Validate that the agent can be resolved
-        AIAgent? agent = this._serviceProvider.GetKeyedService<AIAgent>(agentName);
+        AIAgent? agent = this.ResolveAgent(agentName);
         if (agent is null)
         {
             if (this._logger.IsEnabled(LogLevel.Warning))
@@ -86,7 +86,8 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         string agentName = GetAgentName(request)!;
-        AIAgent agent = this._serviceProvider.GetRequiredKeyedService<AIAgent>(agentName);
+        AIAgent agent = this.ResolveAgent(agentName)
+            ?? throw new InvalidOperationException($"Agent '{agentName}' not found.");
 
         var chatOptions = new ChatOptions
         {
@@ -122,6 +123,16 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
             yield return streamingEvent;
         }
     }
+
+    /// <summary>
+    /// Resolves an agent by name: first from keyed DI registrations (AddAIAgent), then from an
+    /// optional dynamic resolver (<see cref="Func{T, TResult}"/> of name → agent) registered in DI.
+    /// The dynamic resolver lets agents authored/changed at runtime (e.g. file hot-reload) be run
+    /// without being statically registered. When no resolver is registered, behavior is unchanged.
+    /// </summary>
+    private AIAgent? ResolveAgent(string agentName)
+        => this._serviceProvider.GetKeyedService<AIAgent>(agentName)
+            ?? this._serviceProvider.GetService<Func<string, AIAgent?>>()?.Invoke(agentName);
 
     /// <summary>
     /// Extracts the agent name for a request from the agent.name property, falling back to metadata["entity_id"].

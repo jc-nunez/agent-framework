@@ -1,0 +1,16 @@
+# A second workflow that REUSES ReviewerAgent (no Writer). Same agent definition,
+# different flow — demonstrating agent reuse across workflows.
+kind: Workflow
+trigger:
+
+  kind: OnConversationStart
+  id: quick_polish
+  actions:
+
+    - kind: InvokeAzureAgent
+      id: invoke_reviewer
+      conversationId: =System.ConversationId
+      agent:
+        name: ReviewerAgent
+      output:
+        messages: Local.Final

@@ -296,8 +296,15 @@ internal static class EntitiesApiExtensions
         var keyedEntities = serviceProvider.GetKeyedServices<T>(KeyedService.AnyKey);
         var defaultEntities = serviceProvider.GetServices<T>() ?? [];
 
+        // Dynamic sources let entities authored or changed at runtime (e.g. file hot-reload) be
+        // discovered. Each registered Func is invoked lazily on every enumeration, so the entity
+        // list reflects the current state rather than a startup snapshot. When none are registered
+        // this is an empty sequence and behavior is unchanged.
+        var dynamicSources = serviceProvider.GetServices<Func<IEnumerable<T>>>();
+
         return keyedEntities
             .Concat(defaultEntities)
+            .Concat(dynamicSources.SelectMany(source => source() ?? []))
             .Where(entity => entity is not null);
     }
 }

@@ -13,12 +13,19 @@
     <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.DevUI\Microsoft.Agents.AI.DevUI.csproj" />
     <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.Hosting\Microsoft.Agents.AI.Hosting.csproj" />
     <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.Hosting.OpenAI\Microsoft.Agents.AI.Hosting.OpenAI.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.Workflows.Declarative\Microsoft.Agents.AI.Workflows.Declarative.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.Declarative\Microsoft.Agents.AI.Declarative.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.AI.OpenAI" />
-    <PackageReference Include="Azure.Identity" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <!-- Agent + workflow definitions are loaded from these YAML files at runtime. -->
+    <Content Include="definitions\**\*.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Authoring UI page served at /authoring. -->
+    <Content Include="authoring.html" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OllamaSharp" />
   </ItemGroup>
 
 </Project>

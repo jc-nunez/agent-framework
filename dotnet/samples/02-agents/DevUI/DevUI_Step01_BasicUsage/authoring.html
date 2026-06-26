@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent &amp; Workflow Authoring</title>
+<style>
+  :root { --bg:#0f1117; --panel:#171a23; --line:#2a2f3a; --fg:#e6e8ee; --muted:#9aa3b2; --accent:#6ea8fe; --ok:#3fb950; --danger:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; gap:16px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header a { color:var(--accent); text-decoration:none; }
+  .tabs { display:flex; gap:8px; margin-left:auto; }
+  .tabs button { background:transparent; color:var(--muted); border:1px solid var(--line); padding:6px 14px; border-radius:6px; cursor:pointer; }
+  .tabs button.active { color:var(--fg); border-color:var(--accent); }
+  main { display:grid; grid-template-columns:260px 1fr; gap:0; height:calc(100vh - 53px); }
+  .list { border-right:1px solid var(--line); overflow:auto; padding:10px; }
+  .list h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:6px 4px; }
+  .item { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-radius:6px; cursor:pointer; }
+  .item:hover { background:#1e2330; }
+  .item.sel { background:#243049; }
+  .item .del { color:var(--danger); border:none; background:none; cursor:pointer; opacity:.6; }
+  .item .del:hover { opacity:1; }
+  .editor { overflow:auto; padding:20px 24px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  input, textarea { width:100%; background:#0c0e14; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:inherit; }
+  textarea { resize:vertical; }
+  textarea.code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; }
+  .btn { background:var(--accent); color:#06121f; border:none; padding:8px 16px; border-radius:6px; font-weight:600; cursor:pointer; }
+  .btn.secondary { background:#222838; color:var(--fg); border:1px solid var(--line); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .bar { display:flex; gap:10px; align-items:center; margin:14px 0; }
+  .grow { flex:1; }
+  .out { white-space:pre-wrap; background:#0c0e14; border:1px solid var(--line); border-radius:6px; padding:12px; min-height:48px; color:#cfe9d4; }
+  .hint { color:var(--muted); font-size:12px; }
+  .pill { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:2px 8px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; padding:0 16px 16px; margin:18px 0; }
+  legend { color:var(--muted); font-size:12px; padding:0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent &amp; Workflow Authoring</h1>
+  <span class="pill" id="kindPill">agents</span>
+  <div class="tabs">
+    <button id="tabAgents" class="active" onclick="setKind('agents')">Agents</button>
+    <button id="tabWorkflows" onclick="setKind('workflows')">Workflows</button>
+    <a href="/devui" target="_blank" style="margin-left:8px;align-self:center">Open DevUI ↗</a>
+  </div>
+</header>
+<main>
+  <div class="list">
+    <h2 id="listTitle">Agents</h2>
+    <div id="list"></div>
+    <button class="btn secondary" style="width:100%;margin-top:10px" onclick="newItem()">+ New</button>
+  </div>
+  <div class="editor">
+    <!-- Agent form (generates YAML) -->
+    <fieldset id="agentForm">
+      <legend>Agent form → generates YAML</legend>
+      <div class="row">
+        <div class="grow"><label>Name</label><input id="aName" placeholder="WriterAgent" /></div>
+        <div style="width:140px"><label>Temperature</label><input id="aTemp" type="number" step="0.1" min="0" max="2" value="0.7" /></div>
+      </div>
+      <label>Description</label><input id="aDesc" placeholder="Drafts a first version." />
+      <label>System prompt (instructions)</label>
+      <textarea id="aInstr" rows="4" placeholder="You are a concise copywriter..."></textarea>
+      <div class="bar"><button class="btn secondary" onclick="genAgentYaml()">Generate YAML ↓</button>
+        <span class="hint">Edit fields, then generate. The YAML below is what gets saved.</span></div>
+    </fieldset>
+
+    <label id="yamlLabel">YAML (saved to definitions/<span id="kindPath">agents</span>/&lt;name&gt;.yaml)</label>
+    <textarea id="yaml" class="code" rows="14"></textarea>
+
+    <div class="bar">
+      <input id="saveName" placeholder="file name (no extension)" style="max-width:240px" />
+      <button class="btn" onclick="save()">Save</button>
+      <span class="hint" id="saveMsg"></span>
+    </div>
+
+    <fieldset>
+      <legend>Test (runs the saved definition on Ollama qwen3:8b)</legend>
+      <label>Input</label>
+      <textarea id="testInput" rows="2" placeholder="Write a tagline for a privacy-first notes app."></textarea>
+      <div class="bar"><button class="btn" id="testBtn" onclick="runTest()">Run test</button>
+        <span class="hint">Save first — Test runs the stored version. Workflows may take ~15–30s/agent.</span></div>
+      <div class="out" id="testOut"></div>
+    </fieldset>
+  </div>
+</main>
+<script>
+let kind = 'agents';
+let selected = null;
+
+const api = async (path, method='GET', body) => {
+  const r = await fetch('/api/definitions/' + path, {
+    method, headers: body ? {'Content-Type':'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!r.ok) {
+    let detail = 'HTTP ' + r.status;
+    try { const t = await r.text(); if (t) detail += ' — ' + t; } catch {}
+    throw new Error(detail);
+  }
+  return r.headers.get('content-type')?.includes('json') ? r.json() : r.text();
+};
+
+function setKind(k){
+  kind = k; selected = null;
+  document.getElementById('tabAgents').classList.toggle('active', k==='agents');
+  document.getElementById('tabWorkflows').classList.toggle('active', k==='workflows');
+  document.getElementById('kindPill').textContent = k;
+  document.getElementById('kindPath').textContent = k;
+  document.getElementById('listTitle').textContent = k==='agents' ? 'Agents' : 'Workflows';
+  document.getElementById('agentForm').style.display = k==='agents' ? '' : 'none';
+  document.getElementById('testOut').textContent = '';
+  document.getElementById('saveMsg').textContent = '';
+  refresh();
+  newItem();
+}
+
+async function refresh(){
+  const items = await api(kind + '/');
+  const el = document.getElementById('list');
+  el.innerHTML = '';
+  items.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'item' + (d.name===selected ? ' sel' : '');
+    row.innerHTML = `<span>${d.name}</span>`;
+    row.onclick = () => select(d.name);
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = '✕'; del.title = 'Delete';
+    del.onclick = (e) => { e.stopPropagation(); remove(d.name); };
+    row.appendChild(del);
+    el.appendChild(row);
+  });
+}
+
+async function select(name){
+  selected = name;
+  const d = await api(kind + '/' + encodeURIComponent(name));
+  document.getElementById('yaml').value = d.yaml;
+  document.getElementById('saveName').value = d.name;
+  document.getElementById('testOut').textContent = '';
+  document.getElementById('saveMsg').textContent = '';
+  refresh();
+}
+
+function newItem(){
+  selected = null;
+  document.getElementById('saveName').value = '';
+  if (kind==='agents'){
+    document.getElementById('aName').value=''; document.getElementById('aDesc').value='';
+    document.getElementById('aInstr').value=''; document.getElementById('aTemp').value='0.7';
+    document.getElementById('yaml').value='';
+  } else {
+    document.getElementById('yaml').value =
+`kind: Workflow
+trigger:
+  kind: OnConversationStart
+  id: my_workflow
+  actions:
+    - kind: InvokeAzureAgent
+      id: step1
+      conversationId: =System.ConversationId
+      agent:
+        name: ReviewerAgent
+      output:
+        messages: Local.Final
+`;
+  }
+}
+
+function genAgentYaml(){
+  const name = document.getElementById('aName').value.trim() || 'NewAgent';
+  const desc = document.getElementById('aDesc').value.trim();
+  const temp = document.getElementById('aTemp').value || '0.7';
+  const instr = document.getElementById('aInstr').value.trim().split('\n').map(l => '  ' + l).join('\n');
+  document.getElementById('yaml').value =
+`kind: Prompt
+name: ${name}
+description: ${desc}
+instructions: |
+${instr}
+model:
+  options:
+    temperature: ${temp}
+`;
+  if (!document.getElementById('saveName').value) document.getElementById('saveName').value = name;
+}
+
+async function save(){
+  const name = document.getElementById('saveName').value.trim();
+  const yaml = document.getElementById('yaml').value;
+  if (!name){ alert('Enter a file name'); return; }
+  await api(kind + '/' + encodeURIComponent(name), 'PUT', { yaml });
+  selected = name;
+  document.getElementById('saveMsg').textContent = '✔ saved ' + name + ' (restart to update DevUI catalog)';
+  document.getElementById('saveMsg').style.color = 'var(--ok)';
+  refresh();
+}
+
+async function remove(name){
+  if (!confirm('Delete ' + name + '?')) return;
+  await api(kind + '/' + encodeURIComponent(name), 'DELETE');
+  if (selected===name) newItem();
+  refresh();
+}
+
+async function runTest(){
+  const name = document.getElementById('saveName').value.trim();
+  const input = document.getElementById('testInput').value.trim();
+  if (!name){ alert('Save the definition first'); return; }
+  if (!input){ alert('Enter some test input first'); return; }
+  const btn = document.getElementById('testBtn'), out = document.getElementById('testOut');
+  btn.disabled = true; out.textContent = 'Running on qwen3:8b…';
+  try {
+    const r = await api(kind + '/' + encodeURIComponent(name) + '/test', 'POST', { input });
+    out.textContent = r.output || '(no output)';
+  } catch (e) { out.textContent = 'Error: ' + e.message; }
+  finally { btn.disabled = false; }
+}
+
+setKind('agents');
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Workflow definition. References agents BY NAME — the agents themselves live in
+# definitions/agents/*.yaml and are reused across workflows. This flow: WriterAgent
+# drafts, then ReviewerAgent polishes (both share =System.ConversationId).
+kind: Workflow
+trigger:
+
+  kind: OnConversationStart
+  id: draft_and_review
+  actions:
+
+    - kind: InvokeAzureAgent
+      id: invoke_writer
+      conversationId: =System.ConversationId
+      agent:
+        name: WriterAgent
+      output:
+        messages: Local.Draft
+
+    - kind: InvokeAzureAgent
+      id: invoke_reviewer
+      conversationId: =System.ConversationId
+      agent:
+        name: ReviewerAgent
+      output:
+        messages: Local.Final

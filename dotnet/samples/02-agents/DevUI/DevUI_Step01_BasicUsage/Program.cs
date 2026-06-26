@@ -3,13 +3,12 @@
 // This sample demonstrates basic usage of the DevUI in an ASP.NET Core application with AI agents.
 
 using System.ComponentModel;
-using Azure.AI.OpenAI;
-using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
+using OllamaSharp;
 
 namespace DevUI_Step01_BasicUsage;
 
@@ -38,20 +37,17 @@ internal static class Program
     /// Entry point that starts an ASP.NET Core web server with the DevUI.
     /// </summary>
     /// <param name="args">Command line arguments.</param>
-    private static void Main(string[] args)
+    private static async Task Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
 
-        // Set up the Azure OpenAI client
-        var endpoint = builder.Configuration["AZURE_OPENAI_ENDPOINT"] ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
-        var deploymentName = builder.Configuration["AZURE_OPENAI_DEPLOYMENT_NAME"] ?? "gpt-5.4-mini";
+        // Set up the Ollama chat client for local models.
+        // Defaults target a local Ollama instance running qwen3:8b; override via OLLAMA_ENDPOINT / OLLAMA_MODEL_NAME.
+        var endpoint = builder.Configuration["OLLAMA_ENDPOINT"] ?? "http://localhost:11434";
+        var modelName = builder.Configuration["OLLAMA_MODEL_NAME"] ?? "qwen3:8b";
 
-        // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
-        // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
-        // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
-        var chatClient = new AzureOpenAIClient(new Uri(endpoint), new DefaultAzureCredential())
-            .GetChatClient(deploymentName)
-            .AsIChatClient();
+        // OllamaApiClient implements IChatClient, so it plugs directly into the agent hosting stack.
+        IChatClient chatClient = new OllamaApiClient(new Uri(endpoint), modelName);
 
         builder.Services.AddChatClient(chatClient);
 
@@ -89,6 +85,49 @@ internal static class Program
             return AgentWorkflowBuilder.BuildSequential(workflowName: key, agents: agents);
         }).AddAsAIAgent();
 
+        // ----------------------------------------------------------------------------------
+        // DEFINITION-DRIVEN agents + workflows (the product model), with FILE HOT-RELOAD.
+        //
+        // Definitions are authored as data (YAML) and persisted via IDefinitionStore (file-backed
+        // today, DB-swappable later). A DefinitionCatalog rebuilds agents + workflows from the store
+        // into an atomic snapshot, and a file watcher reloads it on change. The framework discovers
+        // and runs them through dynamic Func seams (registered below), so authoring — via the form
+        // or by editing YAML — shows up live in the DevUI with NO restart.
+        // ----------------------------------------------------------------------------------
+        var definitionsDir = Path.Combine(builder.Environment.ContentRootPath, "definitions");
+#pragma warning disable CA1859 // Intentionally typed as the abstraction: the store is swappable (file -> DB) later.
+        IDefinitionStore definitionStore = new FileDefinitionStore(definitionsDir);
+#pragma warning restore CA1859
+
+        // Tool catalog available to declarative agents (agent YAML opts in via its `tools:` list).
+        var agentFactory = new ChatClientPromptAgentFactory(chatClient);
+
+        builder.Services.AddSingleton(definitionStore);
+        builder.Services.AddSingleton(agentFactory);
+        builder.Services.AddSingleton(sp => new DefinitionCatalog(
+            sp.GetRequiredService<IDefinitionStore>(),
+            sp.GetRequiredService<ChatClientPromptAgentFactory>(),
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<ILogger<DefinitionCatalog>>()));
+
+        // Dynamic discovery + run-routing seams: the framework consults these per request, so the
+        // catalog's current contents (not a startup snapshot) drive the DevUI list and run resolution.
+        builder.Services.AddSingleton<Func<IEnumerable<AIAgent>>>(sp => () => sp.GetRequiredService<DefinitionCatalog>().Agents);
+        builder.Services.AddSingleton<Func<IEnumerable<Workflow>>>(sp => () => sp.GetRequiredService<DefinitionCatalog>().Workflows);
+        builder.Services.AddSingleton<Func<string, AIAgent?>>(sp => name => sp.GetRequiredService<DefinitionCatalog>().Resolve(name));
+
+        // Watches the definitions directory and reloads the catalog on change (debounced).
+        builder.Services.AddSingleton(sp => new DefinitionWatcher(
+            definitionsDir,
+            sp.GetRequiredService<DefinitionCatalog>(),
+            sp.GetRequiredService<ILogger<DefinitionWatcher>>()));
+
+        // Register DevUI services (auth filter, options, etc.) — required before MapDevUI().
+        if (builder.Environment.IsDevelopment())
+        {
+            builder.AddDevUI();
+        }
+
         builder.Services.AddOpenAIResponses();
         builder.Services.AddOpenAIConversations();
 
@@ -102,8 +141,17 @@ internal static class Program
             app.MapDevUI();
         }
 
+        // Authoring surface: CRUD + on-the-fly test for agent/workflow definitions, plus /authoring page.
+        app.MapDefinitionsApi();
+
+        // Initial load of definitions, then start watching for changes (file hot-reload).
+        await app.Services.GetRequiredService<DefinitionCatalog>().ReloadAsync();
+        _ = app.Services.GetRequiredService<DefinitionWatcher>();
+
         Console.WriteLine("DevUI is available at: https://localhost:50516/devui");
+        Console.WriteLine("Authoring UI is available at: http://localhost:50518/authoring");
         Console.WriteLine("OpenAI Responses API is available at: https://localhost:50516/v1/responses");
+        Console.WriteLine("Definitions hot-reload from: " + definitionsDir);
         Console.WriteLine("Press Ctrl+C to stop the server.");
 
         app.Run();

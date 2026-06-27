@@ -266,6 +266,8 @@ internal enum FunctionToolCallOutputItemResourceStatus
 [JsonDerivedType(typeof(ItemContentOutputText), "output_text")]
 [JsonDerivedType(typeof(ItemContentOutputAudio), "output_audio")]
 [JsonDerivedType(typeof(ItemContentRefusal), "refusal")]
+[JsonDerivedType(typeof(ItemContentFunctionApprovalRequest), "function_approval_request")]
+[JsonDerivedType(typeof(ItemContentFunctionApprovalResponse), "function_approval_response")]
 internal abstract class ItemContent
 {
     /// <summary>
@@ -441,6 +443,64 @@ internal sealed class ItemContentRefusal : ItemContent
     /// </summary>
     [JsonPropertyName("refusal")]
     public required string Refusal { get; init; }
+}
+
+/// <summary>
+/// The function call carried by a function-approval request/response (DevUI human-in-the-loop extension).
+/// </summary>
+internal sealed class ItemContentFunctionCall
+{
+    /// <summary>The id of the function call awaiting approval.</summary>
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    /// <summary>The name of the function being called.</summary>
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    /// <summary>The arguments of the function call, as a JSON object.</summary>
+    [JsonPropertyName("arguments")]
+    public JsonElement? Arguments { get; init; }
+}
+
+/// <summary>
+/// Function-approval request content: a tool call awaiting the user's approval (DevUI extension).
+/// </summary>
+internal sealed class ItemContentFunctionApprovalRequest : ItemContent
+{
+    /// <inheritdoc/>
+    [JsonIgnore]
+    public override string Type => "function_approval_request";
+
+    /// <summary>The approval correlation id.</summary>
+    [JsonPropertyName("request_id")]
+    public required string RequestId { get; init; }
+
+    /// <summary>The function call awaiting approval.</summary>
+    [JsonPropertyName("function_call")]
+    public required ItemContentFunctionCall FunctionCall { get; init; }
+}
+
+/// <summary>
+/// Function-approval response content: the user's approve/reject decision for a tool call (DevUI extension).
+/// </summary>
+internal sealed class ItemContentFunctionApprovalResponse : ItemContent
+{
+    /// <inheritdoc/>
+    [JsonIgnore]
+    public override string Type => "function_approval_response";
+
+    /// <summary>The approval correlation id (matches the request).</summary>
+    [JsonPropertyName("request_id")]
+    public required string RequestId { get; init; }
+
+    /// <summary>Whether the user approved the tool call.</summary>
+    [JsonPropertyName("approved")]
+    public required bool Approved { get; init; }
+
+    /// <summary>The function call the decision applies to.</summary>
+    [JsonPropertyName("function_call")]
+    public required ItemContentFunctionCall FunctionCall { get; init; }
 }
 
 // Additional ItemResource types from TypeSpec

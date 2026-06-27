@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using Microsoft.Agents.AI.Hosting.OpenAI.Responses.Models;
 using Microsoft.Extensions.AI;
 
@@ -70,6 +72,12 @@ internal static class ItemContentConverter
             ItemContentOutputAudio outputAudio =>
                 new DataContent(outputAudio.Data, "audio/*"),
 
+            // Function-approval (DevUI human-in-the-loop) content
+            ItemContentFunctionApprovalRequest approvalRequest =>
+                new ToolApprovalRequestContent(approvalRequest.RequestId, ToToolCall(approvalRequest.FunctionCall)),
+            ItemContentFunctionApprovalResponse approvalResponse =>
+                new ToolApprovalResponseContent(approvalResponse.RequestId, approvalResponse.Approved, ToToolCall(approvalResponse.FunctionCall)),
+
             _ => null
         };
 
@@ -86,6 +94,23 @@ internal static class ItemContentConverter
         }
 
         return aiContent;
+    }
+
+    // Builds a ToolCallContent from the approval payload's function_call. Arguments are walked
+    // manually (no reflection-based JsonSerializer) to stay trim/AOT-safe.
+    private static FunctionCallContent ToToolCall(ItemContentFunctionCall functionCall)
+    {
+        Dictionary<string, object?>? arguments = null;
+        if (functionCall.Arguments is { ValueKind: JsonValueKind.Object } argumentsObject)
+        {
+            arguments = [];
+            foreach (var property in argumentsObject.EnumerateObject())
+            {
+                arguments[property.Name] = property.Value;
+            }
+        }
+
+        return new FunctionCallContent(functionCall.Id, functionCall.Name, arguments);
     }
 
     /// <summary>

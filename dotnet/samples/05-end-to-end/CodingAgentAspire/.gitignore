@@ -1,0 +1,5 @@
+# Local SDK pin — use the repository's root global.json instead.
+global.json
+
+# Agent runtime workspace (sandbox scratch files).
+CodingAgent.Web/workspace/

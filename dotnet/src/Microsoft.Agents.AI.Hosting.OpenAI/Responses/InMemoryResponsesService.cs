@@ -420,6 +420,10 @@ internal sealed class InMemoryResponsesService : IResponsesService, IDisposable
         var request = state.Request!;
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.CancellationTokenSource!.Token);
 
+        // When enabled, collect OpenTelemetry spans produced during execution and emit them as
+        // response.trace.completed events (DevUI Traces tab).
+        using var traceScope = this._options.EmitTraceEvents ? new ResponseTraceScope() : null;
+
         try
         {
             // Create agent invocation context
@@ -445,9 +449,33 @@ internal sealed class InMemoryResponsesService : IResponsesService, IDisposable
             // Collect output items for conversation storage
             List<ItemResource> outputItems = [];
 
+            // Emits the captured OpenTelemetry spans as response.trace.completed events (DevUI Traces tab).
+            void EmitTraceEvents(ResponseTraceScope scope)
+            {
+                foreach (var activity in scope.Activities)
+                {
+                    state.AddStreamingEvent(new StreamingResponseTraceCompleted
+                    {
+                        SequenceNumber = state.StreamingUpdates.Count + 1,
+                        Data = ResponseTraceScope.ToSpanData(activity),
+                    });
+                }
+            }
+
+            var tracesEmitted = false;
+
             // Execute using the injected executor
             await foreach (var streamingEvent in this._executor.ExecuteAsync(context, request, conversationHistory, linkedCts.Token).ConfigureAwait(false))
             {
+                // The executor yields its own terminal event and the consumer stops on it, so flush
+                // the captured spans just before that terminal event.
+                if (traceScope is not null && !tracesEmitted &&
+                    streamingEvent is StreamingResponseCompleted or StreamingResponseIncomplete or StreamingResponseFailed)
+                {
+                    EmitTraceEvents(traceScope);
+                    tracesEmitted = true;
+                }
+
                 state.AddStreamingEvent(streamingEvent);
 
                 // Collect output items
@@ -455,6 +483,12 @@ internal sealed class InMemoryResponsesService : IResponsesService, IDisposable
                 {
                     outputItems.Add(itemDone.Item);
                 }
+            }
+
+            // Fallback: the executor produced no terminal event of its own.
+            if (traceScope is not null && !tracesEmitted)
+            {
+                EmitTraceEvents(traceScope);
             }
 
             // Add both input and output items to conversation storage if available

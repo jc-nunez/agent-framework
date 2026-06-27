@@ -8,8 +8,15 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI;
 /// <summary>
 /// Configuration options for in-memory storage implementations.
 /// </summary>
-internal sealed class InMemoryStorageOptions
+public sealed class InMemoryStorageOptions
 {
+    /// <summary>
+    /// Gets or sets a value indicating whether completed OpenTelemetry spans for each response are
+    /// emitted as <c>response.trace.completed</c> streaming events (consumed by the DevUI Traces tab).
+    /// Default is <see langword="false"/>. Enabling this registers a process-wide activity listener.
+    /// </summary>
+    public bool EmitTraceEvents { get; set; }
+
     /// <summary>
     /// Gets or sets the maximum number of items to store in the cache.
     /// Default is 1000. Set to null for no size limit.

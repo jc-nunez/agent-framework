@@ -30,6 +30,7 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI.Responses.Models;
 [JsonDerivedType(typeof(StreamingWorkflowEventComplete), StreamingWorkflowEventComplete.EventType)]
 [JsonDerivedType(typeof(StreamingFunctionApprovalRequested), StreamingFunctionApprovalRequested.EventType)]
 [JsonDerivedType(typeof(StreamingFunctionApprovalResponded), StreamingFunctionApprovalResponded.EventType)]
+[JsonDerivedType(typeof(StreamingResponseTraceCompleted), StreamingResponseTraceCompleted.EventType)]
 internal abstract class StreamingResponseEvent
 {
     /// <summary>
@@ -123,6 +124,64 @@ internal sealed class StreamingResponseCompleted : StreamingResponseEvent, IStre
     /// </summary>
     [JsonPropertyName("response")]
     public required Response Response { get; init; }
+}
+
+/// <summary>
+/// Streaming event carrying a completed OpenTelemetry span for the response, so the DevUI Traces tab
+/// can visualize agent/model/tool execution. Emitted when <see cref="InMemoryStorageOptions.EmitTraceEvents"/> is set.
+/// </summary>
+internal sealed class StreamingResponseTraceCompleted : StreamingResponseEvent
+{
+    /// <summary>The constant event type identifier for completed trace span events.</summary>
+    public const string EventType = "response.trace.completed";
+
+    /// <inheritdoc/>
+    [JsonIgnore]
+    public override string Type => EventType;
+
+    /// <summary>The completed span's data.</summary>
+    [JsonPropertyName("data")]
+    public required TraceSpanData Data { get; init; }
+}
+
+/// <summary>A single completed span projected from a <see cref="System.Diagnostics.Activity"/>.</summary>
+internal sealed class TraceSpanData
+{
+    /// <summary>The data kind ("span").</summary>
+    [JsonPropertyName("type")]
+    public string Type => "span";
+
+    /// <summary>The span id (hex).</summary>
+    [JsonPropertyName("span_id")]
+    public required string SpanId { get; init; }
+
+    /// <summary>The trace id (hex).</summary>
+    [JsonPropertyName("trace_id")]
+    public required string TraceId { get; init; }
+
+    /// <summary>The parent span id (hex), or null for a root span.</summary>
+    [JsonPropertyName("parent_span_id")]
+    public string? ParentSpanId { get; init; }
+
+    /// <summary>The span/operation name.</summary>
+    [JsonPropertyName("operation_name")]
+    public required string OperationName { get; init; }
+
+    /// <summary>The span duration in milliseconds.</summary>
+    [JsonPropertyName("duration_ms")]
+    public double DurationMs { get; init; }
+
+    /// <summary>The span status (e.g. Ok, Error, Unset).</summary>
+    [JsonPropertyName("status")]
+    public string? Status { get; init; }
+
+    /// <summary>The span tags/attributes (stringified values).</summary>
+    [JsonPropertyName("attributes")]
+    public Dictionary<string, string>? Attributes { get; init; }
+
+    /// <summary>The span start time (ISO-8601).</summary>
+    [JsonPropertyName("timestamp")]
+    public required string Timestamp { get; init; }
 }
 
 /// <summary>
